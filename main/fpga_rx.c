@@ -5,6 +5,7 @@
 #include "color_correct_lcd.h"
 #include "color_correct_usb.h"
 #include "crc8_sae_j1850.h"
+#include "ble_bridge.h"
 #include "driver/uart.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -19,6 +20,7 @@
 #include "player_num.h"
 #include "silent.h"
 #include "style.h"
+#include "system/cheats.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -56,6 +58,7 @@ static RxState_t _eState = kScanForHeaderMarker;
 static uint8_t DecodeBuffer[kSysMgmtConsts_MaxMsgProtoV2Len];
 static uint32_t BufferIndex = 0;
 static uint8_t RxBuffer[kSysMgmtConsts_RxBufferSize]; // Allocate enough room to store several messages
+static uint16_t PrevButtonBits = 0; // Track last button bitmap for combo edge detection
 
 // Declare a variable to hold the handle of the created event group.
 static EventGroupHandle_t xEventGroupHandle = NULL;
@@ -281,6 +284,9 @@ static void ProcessMessage(const RxMsg_t *const pMsg)
         rxdata = ((uint16_t)pMsg->Payload[0] << 8 | pMsg->Payload[1]);
     }
 
+    // Debug: peek at inbound messages to verify traffic during snapshot capture
+    ESP_LOGD(TAG, "RX addr=0x%02X len=%u hdr=0x%02X", (unsigned)pMsg->Addr, (unsigned)pMsg->Len, (unsigned)pMsg->Header);
+
     switch(pMsg->Addr)
     {
         case kRxCmd_VoltageAA:
@@ -301,14 +307,17 @@ static void ProcessMessage(const RxMsg_t *const pMsg)
         }
         case kRxCmd_Buttons:
             Button_Update(rxdata);
-            if ((rxdata & kButtonBits_MenuEnAlt) != 0 || (rxdata & kButtonBits_MenuEn) != 0)
             {
-                OSD_SetVisiblityState(false);
-            }
-            else
-            {
-                // Hack: If we're getting button data, then the OSD is displayed
-                OSD_SetVisiblityState(true);
+                const uint16_t menuMask = (kButtonBits_MenuEn | kButtonBits_MenuEnAlt);
+                const bool menuPressed = (rxdata & menuMask) != 0;
+                const bool menuRisingEdge = menuPressed && ((PrevButtonBits & menuMask) == 0);
+
+                if (menuRisingEdge)
+                {
+                    OSD_SetVisiblityState(true);
+                }
+
+                PrevButtonBits = rxdata;
             }
             break;
         case kRxCmd_AudioBrightness:
@@ -386,6 +395,55 @@ static void ProcessMessage(const RxMsg_t *const pMsg)
             break;
 
         }
+        case kRxCmd_GameHash:
+        {
+            if (pMsg->Len >= 4)
+            {
+                uint32_t h = 0;
+                h |= ((uint32_t)pMsg->Payload[0] << 24);
+                h |= ((uint32_t)pMsg->Payload[1] << 16);
+                h |= ((uint32_t)pMsg->Payload[2] << 8);
+                h |= ((uint32_t)pMsg->Payload[3] << 0);
+                Cheats_SetGameHash(h);
+            }
+            else
+            {
+                ESP_LOGW(TAG, "GameHash len %d < 4", pMsg->Len);
+            }
+            break;
+        }
+        case kRxCmd_WRAMChunk:
+        {
+            // Payload: [addr_hi][addr_lo][data0..data7]
+            if (pMsg->Len >= 3)
+            {
+                ESP_LOGD(TAG, "WRAM chunk len=%u addr=%02X%02X", (unsigned)pMsg->Len, (unsigned)pMsg->Payload[0], (unsigned)pMsg->Payload[1]);
+
+                const uint16_t addr = ((uint16_t)pMsg->Payload[0] << 8) | pMsg->Payload[1];
+                const size_t chunk_len = pMsg->Len - 2;
+                OSD_Snapshot_OnWRAMChunk(addr, &pMsg->Payload[2], chunk_len);
+            }
+            else
+            {
+                ESP_LOGW(TAG, "WRAM chunk len %d < 3", pMsg->Len);
+            }
+            break;
+        }
+            case kRxCmd_FBPreviewChunk:
+            {
+                // Payload: [addr_hi][addr_lo][data...]
+                if (pMsg->Len >= 3)
+                {
+                    const uint16_t addr = ((uint16_t)pMsg->Payload[0] << 8) | pMsg->Payload[1];
+                    const size_t chunk_len = pMsg->Len - 2;
+                    OSD_FBPreview_OnChunk(addr, &pMsg->Payload[2], chunk_len);
+                }
+                else
+                {
+                    ESP_LOGW(TAG, "FB preview chunk len %d < 3", pMsg->Len);
+                }
+                break;
+            }
         default:
             ESP_LOGE(TAG, "Unknown cmd: %d", pMsg->Addr);
             break;

@@ -21,6 +21,7 @@ static const char* NVS_KeyStr[kNumSettingKeys] = {
     [kSettingKey_DPadCtl]          = "dpad-diag",
     [kSettingKey_LowBattIconCtl]   = "lbi-ctl",
     [kSettingKey_PaletteStyleID]   = "plt-style-id",
+    [kSettingKey_GBCColorTemp]     = "gbc-temp",
 };
 
 const SettingValue_t DefaultSettings[kNumSettingKeys] = {
@@ -61,6 +62,10 @@ const SettingValue_t DefaultSettings[kNumSettingKeys] = {
         .U8 = 0,
     },
     [kSettingKey_PaletteStyleID] = {
+        .eType = kSettingDataType_U8,
+        .U8 = 0,
+    },
+    [kSettingKey_GBCColorTemp] = {
         .eType = kSettingDataType_U8,
         .U8 = 0,
     }

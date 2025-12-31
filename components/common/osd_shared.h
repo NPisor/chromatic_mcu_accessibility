@@ -5,7 +5,9 @@
 #include "button.h"
 #include <stdint.h>
 
+#ifndef ARRAY_SIZE
 #define ARRAY_SIZE(x) (sizeof(x)/sizeof(x[0]))
+#endif
 
 // As always, thank you https://stackoverflow.com/a/3437484
 #ifndef MIN

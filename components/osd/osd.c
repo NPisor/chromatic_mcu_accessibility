@@ -25,6 +25,9 @@ OSD_Result_t OSD_Initialize(void)
 
     sys_dlist_init(&OSD.WidgetList);
 
+    // Default to visible to match existing behavior before visibility gating was added.
+    OSD.IsVisible = true;
+
     OSD_Common_Init();
 
     return kOSD_Result_Ok;
@@ -63,6 +66,11 @@ OSD_Result_t OSD_AddWidget( OSD_Widget_t *const pWidget )
 
 void OSD_Draw(void* arg)
 {
+    if (!OSD.IsVisible)
+    {
+        return;
+    }
+
     sys_dnode_t* pNode = NULL;
     SYS_DLIST_FOR_EACH_NODE(&OSD.WidgetList, pNode) {
         if (pNode == NULL)

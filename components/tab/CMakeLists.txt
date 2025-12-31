@@ -10,4 +10,5 @@ idf_component_register(SRCS
                         "tab_dots/"
                         "tab_list/"
                         "tab_table/"
-                    REQUIRES common dlist)
+                    REQUIRES common dlist
+                    WHOLE_ARCHIVE)

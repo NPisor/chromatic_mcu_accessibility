@@ -4,6 +4,7 @@ idf_component_register(SRCS
                         "controls/dpad_ctl.c"
                         "controls/hotkeys.c"
                         "palette/palette.c"
+                        "palette/gbc_color_temp.c"
                         "palette/style.c"
                         "display/frameblend.c"
                         "display/color_correct_lcd.c"
@@ -15,6 +16,9 @@ idf_component_register(SRCS
                         "status/brightness.c"
                         "status/fw.c"
                         "system/silent.c"
+                        "system/bt_advert.c"
+                        "system/cheats.c"
+                        "system/achievement.c"
                         "system/serial_num.c"
                         "system/player_num.c"
                     INCLUDE_DIRS
@@ -24,5 +28,5 @@ idf_component_register(SRCS
                         "palette/"
                         "display/"
                         "system/"
-                    REQUIRES battery common dlist menu_mgr
-                    PRIV_REQUIRES esp_app_format settings console efuse)
+                    REQUIRES battery common dlist menu_mgr tab
+                    PRIV_REQUIRES esp_app_format settings console efuse main)

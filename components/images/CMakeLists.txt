@@ -20,8 +20,11 @@ idf_component_register(SRCS
     "img_toggle_off.c"
     "img_toggle_on.c"
     "menu_controls.c"
+    "menu_cheats.c"
     "menu_display.c"
+    "menu_achievement.c"
     "menu_palette.c"
+    "menu_palette_gbc.c"
     "menu_status.c"
     "menu_system.c"
     REQUIRES lvgl

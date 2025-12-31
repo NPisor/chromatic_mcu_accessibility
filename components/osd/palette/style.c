@@ -70,6 +70,8 @@ typedef struct PaletteCtl {
 
 static const char* TAG = "PaletteCtl";
 static PaletteCtl_t _Ctx;
+static bool _GBCOverlayAdded;
+static void (*_fnOnGBCModeChanged)(bool isGBC);
 
 static void SaveToSettings(const StyleID_t ID );
 static void StyleOnEventDrawCb(lv_event_t * e);
@@ -90,35 +92,30 @@ OSD_Result_t Style_Draw(void* arg)
         return kOSD_Result_Err_NullDataPtr;
     }
 
-    // When in GBC mode, render eyebrow and text msg
+    // When in GBC mode, hide the table and show only the eyebrow overlay
     if (_Ctx.GBCMode)
     {
-        // Style_Draw is called kNumPalette times. When in GBC mode, we only want to draw the eyebrow and text once
         if (CurrID == kPalette_Default)
         {
-            lv_obj_t* pEyebrow = lv_img_create(pItem->DataObj);
-            lv_img_set_src(pEyebrow, &img_chromatic_eyebrow);
-            lv_obj_align(pEyebrow, LV_ALIGN_TOP_LEFT, kGBCImgOffsetX_px, kGBCImgOffsetY_px);
+            lv_obj_add_flag(pTable, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clean(pItem->DataObj);  // ensure only the overlay remains
 
-            lv_obj_t* pText = lv_label_create(pItem->DataObj);
-            lv_label_set_text_static(pText, "YOUR GAME DOES\nNOT SUPPORT\nCOLOR PALETTES");
-            lv_obj_align(pText, LV_ALIGN_TOP_LEFT, kGBCTxtOffsetX_px, kGBCTxtOffsetY_px);
-            lv_obj_add_style(pText, OSD_GetStyleTextWhite(), LV_PART_MAIN);
-            lv_obj_set_width(pText, kGBCTxtW_px);
+            if (!_GBCOverlayAdded)
+            {
+                lv_obj_t* pEyebrow = lv_img_create(pItem->DataObj);
+                lv_img_set_src(pEyebrow, &img_chromatic_eyebrow);
+                lv_obj_align(pEyebrow, LV_ALIGN_TOP_LEFT, kGBCImgOffsetX_px, kGBCImgOffsetY_px);
+                _GBCOverlayAdded = true;
+            }
         }
     } else {
-        const char* CellText;
-
-        if (_Ctx.HotKeyUsedAtBoot && (CurrID % kNumRows == 0) && (CurrID / kNumRows == 0))
+        if (_GBCOverlayAdded)
         {
-            CellText = "HOTKEY";
+            lv_obj_clean(pItem->DataObj);
+            _GBCOverlayAdded = false;
         }
-        else
-        {
-            CellText = pItem->Widget.Name;
-        }
-
-        lv_table_set_cell_value(pTable, CurrID % kNumRows, CurrID / kNumRows, CellText);
+        lv_obj_clear_flag(pTable, LV_OBJ_FLAG_HIDDEN);
+        lv_table_set_cell_value(pTable, CurrID % kNumRows, CurrID / kNumRows, pItem->Widget.Name);
 
         // Draw callback only needs to be added to table once
         if (!_Ctx.TableCbAdded)
@@ -214,6 +211,7 @@ OSD_Result_t Style_OnTransition(void* arg)
 
     // Callback is removed when table is destroyed, so we need to clear flag to re-add the callback
     _Ctx.TableCbAdded = false;
+    _GBCOverlayAdded = false;
 
     return kOSD_Result_Ok;
 }
@@ -249,7 +247,30 @@ void Style_RegisterOnUpdateCb(fnOnUpdateCb_t fnOnUpdate)
 
 void Style_SetGBCMode(const bool GBCMode)
 {
+    const bool changed = (_Ctx.GBCMode != GBCMode);
     _Ctx.GBCMode = GBCMode;
+
+    if (changed)
+    {
+        // Force a redraw path change on next entry
+        _Ctx.TableCbAdded = false;
+        _GBCOverlayAdded = false;
+
+        if (_fnOnGBCModeChanged != NULL)
+        {
+            _fnOnGBCModeChanged(GBCMode);
+        }
+    }
+}
+
+void Style_RegisterOnGBCModeChanged(void (*fnOnModeChange)(bool isGBC))
+{
+    _fnOnGBCModeChanged = fnOnModeChange;
+}
+
+bool Style_IsGBCMode(void)
+{
+    return _Ctx.GBCMode;
 }
 
 void Style_SetHKPalette(const uint64_t bootPalette)

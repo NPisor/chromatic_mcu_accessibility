@@ -2,6 +2,7 @@
 
 #include "dlist.h"
 #include "osd_shared.h"
+#include "system/cheats.h"
 
 #include "lvgl.h"
 #include "esp_log.h"
@@ -85,6 +86,11 @@ OSD_Result_t Tab_OnButton(const Button_t Button, const ButtonState_t State, void
     }
 
     // Handle navigation
+    if (Cheats_IsInEdit())
+    {
+        return kOSD_Result_Ok;
+    }
+
     switch (Button)
     {
         case kButton_Down:
@@ -113,6 +119,13 @@ void Tab_Next(TabCollection_t *const pList)
         return;
     }
 
+    const size_t len = sys_dlist_len(&pList->WidgetList);
+    if (len <= 1)
+    {
+        // Nothing to advance to
+        return;
+    }
+
     sys_dnode_t* pNode = &pList->pCurrent->Widget.Node;
     TabItem_t* pNextItem = (TabItem_t*)sys_dlist_peek_next(&pList->WidgetList, pNode);
 
@@ -120,6 +133,10 @@ void Tab_Next(TabCollection_t *const pList)
     {
         // wrap to start of list
         pNextItem = (TabItem_t*)sys_dlist_peek_head(&pList->WidgetList);
+        if (pNextItem == NULL)
+        {
+            return;
+        }
     }
 
     OSD_Widget_t* pWidget = (OSD_Widget_t*)pNode;
@@ -146,6 +163,13 @@ void Tab_Prev(TabCollection_t *const pList)
         return;
     }
 
+    const size_t len = sys_dlist_len(&pList->WidgetList);
+    if (len <= 1)
+    {
+        // Nothing to retreat to
+        return;
+    }
+
     sys_dnode_t* pNode = &pList->pCurrent->Widget.Node;
     TabItem_t* pPrevItem = (TabItem_t*)sys_dlist_peek_prev(&pList->WidgetList, pNode);
 
@@ -153,6 +177,10 @@ void Tab_Prev(TabCollection_t *const pList)
     {
         // wrap to end of list
         pPrevItem = (TabItem_t*)sys_dlist_peek_tail(&pList->WidgetList);
+        if (pPrevItem == NULL)
+        {
+            return;
+        }
     }
 
     OSD_Widget_t* pWidget=(OSD_Widget_t*)pNode;

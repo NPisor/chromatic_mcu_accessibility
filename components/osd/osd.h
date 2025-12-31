@@ -3,6 +3,7 @@
 #include "osd_shared.h"
 
 #include <stdint.h>
+#include <stddef.h>
 
 // The pixel number in horizontal and vertical
 #ifndef DISP_W_RES_PX
@@ -25,3 +26,14 @@ void OSD_Draw(void* arg);
 void OSD_HandleInputs(void);
 bool OSD_IsVisible(void);
 void OSD_SetVisiblityState(const bool IsVisible);
+
+void OSD_Snapshot_OnRequestStart(void);
+void OSD_Snapshot_OnWRAMChunk(uint16_t addr, const uint8_t* data, size_t len);
+
+// Framebuffer preview helpers used by the OSD and Rx task
+void OSD_FBPreview_OnRequestStart(void);
+void OSD_FBPreview_OnChunk(uint16_t addr, const uint8_t* data, size_t len);
+
+// Snapshot helpers used by the OSD and Rx task
+void OSD_Snapshot_OnRequestStart(void);
+void OSD_Snapshot_OnWRAMChunk(uint16_t addr, const uint8_t* data, size_t len);

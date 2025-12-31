@@ -4,6 +4,7 @@
 
 static lv_style_t Background;
 static lv_obj_t *pDisplayObj;
+static bool osd_visible = true;
 
 #define BG_COLOR 0xFF00FF
 
@@ -40,4 +41,25 @@ void Gfx_Start(lv_obj_t *const pScreen)
 
     // Create timer for animation
     lv_timer_create(anim_timer_cb, 20, &_Ctx);
+}
+
+bool Gfx_SetOSDVisible(bool visible)
+{
+    const bool prev = osd_visible;
+    osd_visible = visible;
+
+    if (pDisplayObj != NULL)
+    {
+        if (visible)
+        {
+            lv_obj_clear_flag(pDisplayObj, LV_OBJ_FLAG_HIDDEN);
+        }
+        else
+        {
+            lv_obj_add_flag(pDisplayObj, LV_OBJ_FLAG_HIDDEN);
+        }
+        lv_obj_invalidate(pDisplayObj);
+    }
+
+    return prev;
 }

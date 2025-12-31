@@ -13,6 +13,9 @@ typedef enum {
     kRxCmd_Reserved        = 0x7,
     kRxCmd_StatusExtended  = 0x8,
     kRxCmd_BGPalette       = 0x9,
+    kRxCmd_GameHash        = 0xA, // new: 4-byte hash of GB title
+    kRxCmd_WRAMChunk       = 0xB, // new: 8-byte WRAM chunk with 2-byte addr
+    kRxCmd_FBPreviewChunk  = 0xC, // new: framebuffer preview chunk (addr_hi, addr_lo, payload)
 
     kNumRxCmds,
 } RxIDs_t;

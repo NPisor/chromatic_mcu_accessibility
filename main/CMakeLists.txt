@@ -6,6 +6,6 @@ idf_component_register(
     INCLUDE_DIRS "."
     REQUIRES
         images esp_driver_uart esp_driver_spi esp_driver_gpio nvs_flash fatfs
-        common battery button osd menu_mgr settings mutex
+        common battery button osd settings mutex ble_bridge ra_bridge
         console crc
 )

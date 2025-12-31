@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <stdbool.h>
+#include <stddef.h>
 
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
@@ -25,8 +27,10 @@
 #include "fw.h"
 #include "osd.h"
 #include "osd_default.h"
+#include "achievement.h"
 #include "low_batt_icon_ctl.h"
 #include "style.h"
+#include "ble_bridge.h"
 #include "player_num.h"
 #include "screen_transit_ctl.h"
 #include "mutex.h"
@@ -34,6 +38,8 @@
 #include "settings.h"
 #include "silent.h"
 #include "pwrmgr.h"
+#include "ra_bridge.h"
+#include <string.h>
 
 enum {
     kLVGL_TickPeriod_us = 1000u, // 1 millisecond
@@ -53,6 +59,35 @@ enum {
 static const char *TAG = "main";
 static volatile uint8_t fpga_hsync = 0;
 
+// Proxy opcodes (BLE characteristic e1f40400-78fc-4c5f-9aee-9f4d6a1d0004)
+enum {
+    kOpGameInfo      = 0x01,
+    kOpMemChunk      = 0x02,
+    kOpAchUnlock     = 0x03,
+    kOpWatchSpec     = 0x10,
+    kOpWatchClear    = 0x11,
+    kOpGameId        = 0x12,
+    kOpWatchHit      = 0x20,
+    kOpUserProfile   = 0x30,
+    kOpUserAvatarChunk = 0x31,
+    kOpUserAvatarDone  = 0x32,
+};
+
+typedef struct ProfileRxCtx {
+    char Username[64];
+    uint32_t Points;
+    uint8_t ScalePct;
+    uint16_t Width;
+    uint16_t Height;
+    uint16_t NextChunk;
+    size_t Len;
+    bool HeaderSeen;
+    uint8_t *pAvatarBuf;
+    size_t AvatarCap;
+} ProfileRxCtx_t;
+
+static ProfileRxCtx_t sProfileRx;
+
 static void lvgl_tick(void *arg);
 
 static void persist_storage_init(void);
@@ -64,6 +99,202 @@ static spi_device_handle_t spi;
 static lv_disp_draw_buf_t disp_buf; // contains internal graphic buffer(s) called draw buffer(s)
 static lv_disp_drv_t disp_drv;      // contains callback functions
 static lv_disp_t *disp;
+
+static void proxy_rx_log(const uint8_t *data, size_t len)
+{
+    if (len == 0 || data == NULL)
+    {
+        return;
+    }
+
+    const uint8_t op = data[0];
+    if (op == kOpAchUnlock && len > 1)
+    {
+        // ACH_UNLOCK payload: bytes after opcode are text/id (placeholder)
+        char buf[80];
+        size_t copy = (len - 1 < sizeof(buf) - 1) ? (len - 1) : (sizeof(buf) - 1);
+        memcpy(buf, &data[1], copy);
+        buf[copy] = '\0';
+        ESP_LOGI(TAG, "BLE proxy unlock: %s", buf);
+        return;
+    }
+
+    if (op == kOpWatchSpec)
+    {
+        if (len < 6)
+        {
+            ESP_LOGW(TAG, "WATCH_SPEC too short (%u)", (unsigned)len);
+            return;
+        }
+        const uint8_t watch_id = data[1];
+        const uint16_t addr = ((uint16_t)data[2] << 8) | data[3];
+        const uint8_t span = data[4];
+        const uint8_t cmp = data[5];
+        const uint8_t threshold = (len > 6) ? data[6] : 0;
+        RABridge_SetWatch(watch_id, addr, span, cmp, threshold);
+        ESP_LOGI(TAG, "WATCH_SPEC id=%u addr=0x%04X len=%u cmp=%u thr=%u", (unsigned)watch_id, (unsigned)addr, (unsigned)span, (unsigned)cmp, (unsigned)threshold);
+        return;
+    }
+
+    if (op == kOpWatchClear)
+    {
+        RABridge_ClearWatches();
+        ESP_LOGI(TAG, "WATCH_CLEAR");
+        return;
+    }
+
+    if (op == kOpUserProfile)
+    {
+        if (len < 9)
+        {
+            ESP_LOGW(TAG, "USER_PROFILE too short (%u)", (unsigned)len);
+            return;
+        }
+
+        const uint32_t points = ((uint32_t)data[1] << 24) | ((uint32_t)data[2] << 16) | ((uint32_t)data[3] << 8) | data[4];
+        const uint8_t scale = data[5];
+        const uint16_t width = data[6];
+        const uint16_t height = data[7];
+        const uint8_t name_len = data[8];
+        const size_t header_extra = 9;
+
+        memset(&sProfileRx, 0, sizeof(sProfileRx));
+        sProfileRx.Points = points;
+        sProfileRx.ScalePct = scale;
+        sProfileRx.Width = width;
+        sProfileRx.Height = height;
+        sProfileRx.NextChunk = 0;
+        sProfileRx.HeaderSeen = true;
+
+        uint8_t *pScratch = NULL;
+        size_t scratchCap = 0;
+        if (Achievement_GetAvatarScratch(&pScratch, &scratchCap) == kOSD_Result_Ok)
+        {
+            sProfileRx.pAvatarBuf = pScratch;
+            sProfileRx.AvatarCap = scratchCap;
+        }
+        else
+        {
+            ESP_LOGW(TAG, "USER_PROFILE scratch alloc failed");
+        }
+
+        if (name_len > 0 && (header_extra + name_len) <= len)
+        {
+            const size_t copy = (name_len < sizeof(sProfileRx.Username) - 1) ? name_len : (sizeof(sProfileRx.Username) - 1);
+            memcpy(sProfileRx.Username, &data[header_extra], copy);
+            sProfileRx.Username[copy] = '\0';
+        }
+        else
+        {
+            strncpy(sProfileRx.Username, "PLAYER", sizeof(sProfileRx.Username) - 1);
+            sProfileRx.Username[sizeof(sProfileRx.Username) - 1] = '\0';
+        }
+
+        AchievementUserProfile_t profile = {
+            .pUsername = sProfileRx.Username,
+            .Points = sProfileRx.Points,
+            .pAvatar = NULL,
+            .AvatarScalePct = sProfileRx.ScalePct,
+        };
+        (void)Achievement_SetUserProfile(&profile);
+
+        ESP_LOGI(TAG, "USER_PROFILE u=%s pts=%lu w=%u h=%u scale=%u", sProfileRx.Username, (unsigned long)sProfileRx.Points, (unsigned)sProfileRx.Width, (unsigned)sProfileRx.Height, (unsigned)sProfileRx.ScalePct);
+        return;
+    }
+
+    if (op == kOpUserAvatarChunk)
+    {
+        if (!sProfileRx.HeaderSeen || len < 4)
+        {
+            ESP_LOGW(TAG, "AVATAR_CHUNK ignored (header=%d len=%u)", (int)sProfileRx.HeaderSeen, (unsigned)len);
+            return;
+        }
+
+        if ((sProfileRx.pAvatarBuf == NULL) || (sProfileRx.AvatarCap == 0))
+        {
+            ESP_LOGW(TAG, "AVATAR_CHUNK missing buffer");
+            return;
+        }
+
+        const uint16_t chunk_id = ((uint16_t)data[1] << 8) | data[2];
+        uint8_t chunk_len = data[3];
+        if (chunk_len > (len - 4))
+        {
+            chunk_len = (uint8_t)(len - 4);
+        }
+
+        if (chunk_id != sProfileRx.NextChunk)
+        {
+            ESP_LOGW(TAG, "AVATAR_CHUNK out of order got=%u exp=%u", (unsigned)chunk_id, (unsigned)sProfileRx.NextChunk);
+            return;
+        }
+
+        if ((sProfileRx.Len + chunk_len) > sProfileRx.AvatarCap)
+        {
+            ESP_LOGW(TAG, "AVATAR_CHUNK overflow len=%u total=%u", (unsigned)chunk_len, (unsigned)sProfileRx.Len);
+            return;
+        }
+
+        memcpy(&sProfileRx.pAvatarBuf[sProfileRx.Len], &data[4], chunk_len);
+        sProfileRx.Len += chunk_len;
+        sProfileRx.NextChunk++;
+        return;
+    }
+
+    if (op == kOpUserAvatarDone)
+    {
+        if (!sProfileRx.HeaderSeen)
+        {
+            ESP_LOGW(TAG, "AVATAR_DONE without header");
+            return;
+        }
+
+        if (sProfileRx.Len == 0 || sProfileRx.Width == 0 || sProfileRx.Height == 0)
+        {
+            ESP_LOGW(TAG, "AVATAR_DONE missing data len=%u w=%u h=%u", (unsigned)sProfileRx.Len, (unsigned)sProfileRx.Width, (unsigned)sProfileRx.Height);
+            sProfileRx.HeaderSeen = false;
+            return;
+        }
+
+        if ((sProfileRx.pAvatarBuf == NULL) || (sProfileRx.AvatarCap == 0))
+        {
+            ESP_LOGW(TAG, "AVATAR_DONE missing buffer");
+            sProfileRx.HeaderSeen = false;
+            return;
+        }
+
+        (void)Achievement_UpdateFromRawImage(
+            sProfileRx.Username,
+            sProfileRx.Points,
+            sProfileRx.pAvatarBuf,
+            sProfileRx.Len,
+            sProfileRx.Width,
+            sProfileRx.Height,
+            sProfileRx.ScalePct);
+
+        ESP_LOGI(TAG, "AVATAR_DONE applied bytes=%u chunks=%u", (unsigned)sProfileRx.Len, (unsigned)sProfileRx.NextChunk);
+        sProfileRx.HeaderSeen = false;
+        return;
+    }
+
+    if (op == kOpGameId)
+    {
+        uint32_t game_id = 0;
+        for (size_t i = 1; i < len && i < 5; i++)
+        {
+            game_id = (game_id << 8) | data[i];
+        }
+        ESP_LOGI(TAG, "GAME_ID announce: %u", (unsigned)game_id);
+        return;
+    }
+
+    // Fallback log for other payloads
+    char buf[64];
+    size_t copy = (len < sizeof(buf) - 1) ? len : (sizeof(buf) - 1);
+    memcpy(buf, data, copy);
+    buf[copy] = '\0';
+    ESP_LOGI(TAG, "BLE proxy rx (%u): %s", (unsigned)len, buf);
+}
 
 // Having some issue with floating point here so scale 9.6 10x
 #define ROWS_PER_XFER_X10 32
@@ -107,7 +338,7 @@ static void lvglTimerTask(void* param)
     }
 }
 
-static DMA_ATTR lv_color_t buffy[160*144];
+DMA_ATTR lv_color_t buffy[160*144];
 
 static void send_lines(spi_device_handle_t spi, int ypos, uint16_t *linedata)
 {
@@ -228,6 +459,10 @@ void app_main(void)
 {
     persist_storage_init();
     Mutex_Init();
+
+    BLEBridge_Init();
+    BLEBridge_RegisterProxyRxCb(proxy_rx_log);
+    RABridge_Init();
 
     // Set up the system management UART to/from the FPGA
     ESP_LOGI(TAG, "Initialize FPGA UART");

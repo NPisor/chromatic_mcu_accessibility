@@ -6,6 +6,9 @@
 #include "esp_console.h"
 #include "freertos/queue.h"
 
+// Forward declaration to avoid cross-component include path issues.
+void PwrMgr_IdleTimerPet(void);
+
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -54,6 +57,12 @@ void Button_Update(uint16_t NewButtons)
 {
     NewButtons = NewButtons & kButtonBitsMask;
 
+    if (NewButtons != 0)
+    {
+        // User input should reset the idle timer so the OSD is not hidden while navigating menus.
+        PwrMgr_IdleTimerPet();
+    }
+
     if (Mutex_Take(kMutexKey_Buttons) == kMutexResult_Ok)
     {
         for (Button_t b = kButton_Start; b < kNumButtons; b++)
@@ -92,7 +101,7 @@ void Button_ResetAll(void)
 
 ButtonState_t Button_GetState(const Button_t b)
 {
-    if (((unsigned)b >= kNumButtons) || (b == kButton_Select))
+    if ((unsigned)b >= kNumButtons)
     {
         return kButtonState_None;
     }

@@ -127,6 +127,14 @@ void PwrMgr_IdleTimerPet(void)
 static void IdleTimerCB( TimerHandle_t xTimer )
 {
     (void)xTimer;
+
+    // Keep the system awake while the OSD is visible so menu navigation doesn't blank the overlay.
+    if (OSD_IsVisible())
+    {
+        (void) xTimerReset(IdleSystemTimer, portMAX_DELAY);
+        return;
+    }
+
     PwrMgr_TriggerLightSleep();
 }
 
