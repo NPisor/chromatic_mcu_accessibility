@@ -4,6 +4,12 @@ I encourage anyone using this firmware update to keep this in mind and PLEASE le
 
 I PROMISE I won't be offended at all and want as much feedback as I can get to hopefully improve the build for anyone using it.
 
+Added functionality:
+
+Cheats tab in OSD
+Dynamic Palette Switch between palettes in GB and warmness in GBC
+BLE integration (basic to connect to Companion App for searching/syncing cheats and eventually other stuff)
+Achievements Tab (mostly visual, but WILL still sync a linked profile (image/points) if loaded in the Companion App)
 
 
 
