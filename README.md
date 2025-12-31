@@ -1,3 +1,12 @@
+This MCU build is a work in progress.  Cheat functionality works as intended (some Gameshark codes online are flaky and don't work), but still have some visual glitches (only when the OSD is open).  Also, with the cheats, sometimes switching between games with a reset button on a flash cart messes with functionality, so it's worth making a habit of turning a code OFF in the OSD before switching in case that has anything to do with it.
+
+I encourage anyone using this firmware update to keep this in mind and PLEASE let me know issues that may arise as I'm the only one working on this and definitely use a "happy path" method to get things working that could use extensive bug testing.
+
+I PROMISE I won't be offended at all and want as much feedback as I can get to hopefully improve the build for anyone using it.
+
+
+
+
 # Chromatic MCU
 This repository houses the ModRetro Chromatic's MCU design files.
 
